@@ -1,0 +1,40 @@
+groups:
+  - name: library-alerts
+    rules:
+
+      - alert: AppDown
+        expr: up{job="library-app"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Library app is down"
+          description: "The library API has been down for more than 1 minute."
+
+      - alert: HighErrorRate
+        expr: |
+          rate(library_requests_total{status=~"5.."}[5m]) /
+          rate(library_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate detected"
+          description: "More than 5% of requests are failing."
+
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, rate(library_request_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High request latency"
+          description: "95th percentile latency is above 1 second."
+
+      - alert: DatabaseConnectionFailed
+        expr: up{job="postgres"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is unreachable"

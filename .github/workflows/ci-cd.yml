@@ -1,0 +1,196 @@
+name: Library System CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/library-system
+
+jobs:
+
+  # ── Job 1: Lint & Test ────────────────────────────────
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: testdb
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint with flake8
+        run: |
+          pip install flake8
+          flake8 app/ --max-line-length=100 --ignore=E501,W503
+
+      - name: Run tests with coverage
+        env:
+          DATABASE_URL: sqlite:///:memory:
+        run: |
+          pip install pytest-cov
+          pytest tests/ -v --cov=app --cov-report=xml --cov-report=term
+
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+
+  # ── Job 2: Security Scan ──────────────────────────────
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Bandit (Python security linter)
+        run: |
+          pip install bandit
+          bandit -r app/ -ll
+
+      - name: Run Safety (dependency vulnerabilities)
+        run: |
+          pip install safety
+          safety check -r requirements.txt
+
+      - name: Scan Dockerfile with Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+
+  # ── Job 3: Build Docker Image ─────────────────────────
+  build:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    if: github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=,suffix=,format=short
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          target: production
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL'
+
+  # ── Job 4: Deploy to Staging ──────────────────────────
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to staging
+        run: |
+          echo "Deploying to staging environment..."
+          # kubectl apply -f k8s/ --namespace=staging
+          # kubectl set image deployment/library-app \
+          #   app=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+          #   --namespace=staging
+
+      - name: Run smoke tests
+        run: |
+          echo "Running smoke tests against staging..."
+          # curl -f https://staging.library.example.com/health
+
+      - name: Notify Slack on success
+        if: success()
+        run: |
+          echo "Send Slack notification: deployment successful"
+          # curl -X POST ${{ secrets.SLACK_WEBHOOK }} \
+          #   -d '{"text":"✅ Library system deployed to staging"}'
+
+  # ── Job 5: Deploy to Production ───────────────────────
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    environment:
+      name: production
+      url: https://library.example.com
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to production (blue-green)
+        run: |
+          echo "Blue-green deployment to production..."
+          # kubectl apply -f k8s/ --namespace=production
+          # kubectl rollout status deployment/library-app --namespace=production
+
+      - name: Post-deployment health check
+        run: |
+          echo "Verifying production health..."
+          # Retry health check up to 10 times
+          # for i in {1..10}; do
+          #   curl -f https://library.example.com/health && break || sleep 5
+          # done
