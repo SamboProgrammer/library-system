@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app # បន្ថែម current_app
 from app import db, BOOK_OPERATIONS
 from app.models.models import Book
 from flask_jwt_extended import jwt_required
@@ -40,6 +40,10 @@ def create_book():
     )
     db.session.add(book)
     db.session.commit()
+    
+    # 🛠️ ជំហានទី ២០ — បន្ថែមការកត់ត្រា Log ពេលបង្កើតសៀវភៅជោគជ័យ
+    current_app.logger.info(f"Book created: {book.title} (ISBN: {book.isbn})")
+    
     BOOK_OPERATIONS.labels(operation='create').inc()
     return jsonify(book.to_dict()), 201
 

@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app # បានបន្ថែម current_app សម្រាប់ហៅប្រើប្រាស់ Logger
 from app import db
 from app.models.models import Member
 from flask_jwt_extended import jwt_required
@@ -33,6 +33,10 @@ def create_member():
     )
     db.session.add(member)
     db.session.commit()
+    
+    # 🛠️ ជំហានទី ២០ — កែប្រែដោយបន្ថែមការកត់ត្រាព័ត៌មាន (Log) ពេលចុះឈ្មោះសមាជិកជោគជ័យ
+    current_app.logger.info(f"Member registered: {member.name} (Email: {member.email})")
+    
     return jsonify(member.to_dict()), 201
 
 # Update member details
