@@ -1,11 +1,14 @@
 from flask import Blueprint, request, jsonify
 from app import db
 from app.models.models import Book, Member, Loan
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from flask_jwt_extended import jwt_required
 
 loans_bp = Blueprint('loans', __name__)
 
+# Fetch all library loans (Protected route)
 @loans_bp.route('', methods=['GET'])
+@jwt_required()
 def list_loans():
     status = request.args.get('status', '')
     query = Loan.query
@@ -14,6 +17,7 @@ def list_loans():
     loans = query.order_by(Loan.loaned_at.desc()).all()
     return jsonify([l.to_dict() for l in loans])
 
+# Create a new book loan record
 @loans_bp.route('', methods=['POST'])
 def create_loan():
     data = request.get_json()
@@ -28,27 +32,33 @@ def create_loan():
     due_days = 14 if member.membership_type == 'standard' else 30
     loan = Loan(
         book_id=book.id, member_id=member.id,
-        due_date=datetime.utcnow() + timedelta(days=due_days)
+        # Updated to modern timezone-aware format to avoid deprecation warnings
+        due_date=datetime.now(timezone.utc) + timedelta(days=due_days)
     )
     book.available -= 1
     db.session.add(loan)
     db.session.commit()
     return jsonify(loan.to_dict()), 201
 
+# Process a book return request
 @loans_bp.route('/<int:loan_id>/return', methods=['POST'])
 def return_loan(loan_id):
     loan = Loan.query.get_or_404(loan_id)
     if loan.status == 'returned':
         return jsonify({'error': 'Already returned'}), 409
-    loan.returned_at = datetime.utcnow()
+    
+    # Updated to modern timezone-aware format
+    loan.returned_at = datetime.now(timezone.utc)
     loan.status = 'returned'
     loan.book.available += 1
     db.session.commit()
     return jsonify(loan.to_dict())
 
+# Scan and retrieve all past-due loans
 @loans_bp.route('/overdue', methods=['GET'])
 def overdue_loans():
-    now = datetime.utcnow()
+    # Updated to modern timezone-aware format
+    now = datetime.now(timezone.utc)
     loans = Loan.query.filter(
         Loan.status == 'active', Loan.due_date < now
     ).all()
