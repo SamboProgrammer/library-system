@@ -1,10 +1,13 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app # បន្ថែម current_app
 from app import db, BOOK_OPERATIONS
 from app.models.models import Book
+from flask_jwt_extended import jwt_required
 
 books_bp = Blueprint('books', __name__)
 
+# Fetch all books with optional search filtering (Protected Route)
 @books_bp.route('', methods=['GET'])
+@jwt_required()
 def list_books():
     q = request.args.get('q', '')
     genre = request.args.get('genre', '')
@@ -16,11 +19,13 @@ def list_books():
     books = query.all()
     return jsonify([b.to_dict() for b in books])
 
+# Get a single book record by ID
 @books_bp.route('/<int:book_id>', methods=['GET'])
 def get_book(book_id):
     book = Book.query.get_or_404(book_id)
     return jsonify(book.to_dict())
 
+# Add a new book to the library catalog
 @books_bp.route('', methods=['POST'])
 def create_book():
     data = request.get_json()
@@ -35,9 +40,14 @@ def create_book():
     )
     db.session.add(book)
     db.session.commit()
+    
+    # 🛠️ ជំហានទី ២០ — បន្ថែមការកត់ត្រា Log ពេលបង្កើតសៀវភៅជោគជ័យ
+    current_app.logger.info(f"Book created: {book.title} (ISBN: {book.isbn})")
+    
     BOOK_OPERATIONS.labels(operation='create').inc()
     return jsonify(book.to_dict()), 201
 
+# Modify an existing book record
 @books_bp.route('/<int:book_id>', methods=['PUT'])
 def update_book(book_id):
     book = Book.query.get_or_404(book_id)
@@ -49,6 +59,7 @@ def update_book(book_id):
     BOOK_OPERATIONS.labels(operation='update').inc()
     return jsonify(book.to_dict())
 
+# Remove a book from the catalog
 @books_bp.route('/<int:book_id>', methods=['DELETE'])
 def delete_book(book_id):
     book = Book.query.get_or_404(book_id)

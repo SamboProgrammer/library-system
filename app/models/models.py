@@ -1,5 +1,7 @@
 from app import db
-from datetime import datetime
+# កែប្រែការ Import ត្រង់នេះ ដោយថែម timezone មកជាមួយ
+from datetime import datetime, timezone 
+from werkzeug.security import generate_password_hash, check_password_hash
 
 class Book(db.Model):
     __tablename__ = 'books'
@@ -11,7 +13,8 @@ class Book(db.Model):
     year = db.Column(db.Integer)
     copies = db.Column(db.Integer, default=1)
     available = db.Column(db.Integer, default=1)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
         return {
@@ -29,7 +32,9 @@ class Member(db.Model):
     phone = db.Column(db.String(20))
     membership_type = db.Column(db.String(20), default='standard')
     active = db.Column(db.Boolean, default=True)
-    joined_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    #  កូដថ្មី៖ កែប្រែត្រង់ default ដូចគ្នា
+    joined_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
         return {
@@ -43,7 +48,9 @@ class Loan(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False)
     member_id = db.Column(db.Integer, db.ForeignKey('members.id'), nullable=False)
-    loaned_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    #  កូដថ្មី៖ កែប្រែត្រង់ default ដូចគ្នា
+    loaned_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     due_date = db.Column(db.DateTime, nullable=False)
     returned_at = db.Column(db.DateTime)
     status = db.Column(db.String(20), default='active')  # active, returned, overdue
@@ -61,3 +68,16 @@ class Loan(db.Model):
             'returned_at': self.returned_at.isoformat() if self.returned_at else None,
             'status': self.status
         }
+        
+class User(db.Model):
+    __tablename__ = "users"
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(100), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def verify_password(self, password):
+        return check_password_hash(self.password_hash, password)
